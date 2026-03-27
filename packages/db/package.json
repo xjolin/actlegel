@@ -1,0 +1,6 @@
+{
+  "name": "@actlegal/db",
+  "version": "1.0.0",
+  "private": true,
+  "description": "数据库迁移和 schema 定义"
+}
