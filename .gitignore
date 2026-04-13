@@ -23,3 +23,15 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase local
+/supabase-legal/volumes/**
+!/supabase-legal/volumes/api/
+!/supabase-legal/volumes/api/**
+!/supabase-legal/volumes/db/
+!/supabase-legal/volumes/db/*.sql
+!/supabase-legal/volumes/db/**/*.sql
+/supabase-legal/volumes/db/data/
+/supabase-legal/volumes/storage/
+/supabase-legal/.env
+!/supabase-legal/.env.example

@@ -4,22 +4,29 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net; -- Supabase 内置，用于 pg_cron 发 HTTP
 
 -- 任务状态枚举
-create type task_status as enum (
-  'pending',
-  'parsing',
-  'parsing_failed',
-  'desensitizing',
-  'desens_failed',
-  'analyzing',
-  'analyze_failed',
-  'done',
-  'failed'
-);
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'task_status') then
+    create type task_status as enum (
+      'pending',
+      'parsing',
+      'parsing_failed',
+      'desensitizing',
+      'desens_failed',
+      'analyzing',
+      'analyze_failed',
+      'done',
+      'failed'
+    );
+  end if;
+end
+$$;
 
 -- 主任务表
-create table review_tasks (
+create table if not exists review_tasks (
   id                uuid primary key default uuid_generate_v4(),
   filename          text not null,
+  party_role        text not null default 'party_a',
   pdf_storage_path  text,                      -- Supabase Storage 路径
   raw_text          text,                      -- MinerU 解析出的原始文本
   desens_chunks     jsonb default '[]'::jsonb, -- 已完成脱敏的块（断点续传）
@@ -35,7 +42,7 @@ create table review_tasks (
 );
 
 -- 分析结果明细（逐条问题，前端单独渲染用）
-create table analysis_items (
+create table if not exists analysis_items (
   id          uuid primary key default uuid_generate_v4(),
   task_id     uuid references review_tasks(id) on delete cascade,
   item_index  int not null,
@@ -48,7 +55,7 @@ create table analysis_items (
 );
 
 -- 对话历史
-create table chat_messages (
+create table if not exists chat_messages (
   id          uuid primary key default uuid_generate_v4(),
   task_id     uuid references review_tasks(id) on delete cascade,
   role        text not null check (role in ('user','assistant')),
@@ -57,10 +64,10 @@ create table chat_messages (
 );
 
 -- 索引
-create index on review_tasks(status);
-create index on review_tasks(created_at desc);
-create index on analysis_items(task_id);
-create index on chat_messages(task_id, created_at);
+create index if not exists idx_review_tasks_status on review_tasks(status);
+create index if not exists idx_review_tasks_created_at_desc on review_tasks(created_at desc);
+create index if not exists idx_analysis_items_task_id on analysis_items(task_id);
+create index if not exists idx_chat_messages_task_id_created_at on chat_messages(task_id, created_at);
 
 -- updated_at 自动更新
 create or replace function update_updated_at()
@@ -68,27 +75,79 @@ returns trigger language plpgsql as $$
 begin new.updated_at = now(); return new; end;
 $$;
 
-create trigger review_tasks_updated_at
-  before update on review_tasks
-  for each row execute function update_updated_at();
+do $$
+begin
+  if not exists (select 1 from pg_trigger where tgname = 'review_tasks_updated_at') then
+    create trigger review_tasks_updated_at
+      before update on review_tasks
+      for each row execute function update_updated_at();
+  end if;
+end
+$$;
 
 -- 开启 Realtime（前端订阅状态变更）
-alter publication supabase_realtime add table review_tasks;
-alter publication supabase_realtime add table analysis_items;
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'review_tasks'
+    ) then
+      alter publication supabase_realtime add table review_tasks;
+    end if;
 
--- pg_cron：每15秒扫一次 pending/failed 任务，触发 Next.js worker 接口
--- 注意：把 URL 和 key 替换成你自己的
-select cron.schedule(
-  'dispatch-review-tasks',
-  '15 seconds',
-  $$
-  select net.http_post(
-    url := 'https://your-domain.com/api/worker/dispatch',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'x-worker-secret', 'your-secret-key-here'
-    ),
-    body := '{}'::jsonb
-  )
-  $$
-);
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'analysis_items'
+    ) then
+      alter publication supabase_realtime add table analysis_items;
+    end if;
+  end if;
+end
+$$;
+
+do $$
+declare
+  dispatch_url text := nullif(current_setting('app.worker_dispatch_url', true), '');
+  worker_secret text := nullif(current_setting('app.worker_secret', true), '');
+begin
+  if dispatch_url is null or worker_secret is null then
+    return;
+  end if;
+
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    return;
+  end if;
+
+  if exists (select 1 from cron.job where jobname = 'dispatch-review-tasks') then
+    perform cron.unschedule((
+      select jobid from cron.job where jobname = 'dispatch-review-tasks' limit 1
+    ));
+  end if;
+
+  perform cron.schedule(
+    'dispatch-review-tasks',
+    '15 seconds',
+    format(
+      $sql$
+      select net.http_post(
+        url := %L,
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'x-worker-secret', %L
+        ),
+        body := '{}'::jsonb
+      )
+      $sql$,
+      dispatch_url,
+      worker_secret
+    )
+  );
+end
+$$;
