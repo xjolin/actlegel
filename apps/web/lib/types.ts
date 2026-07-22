@@ -26,6 +26,7 @@ export interface AnalysisItem {
 export interface TaskDetail extends TaskSummary {
   pdf_storage_path: string | null
   raw_text: string | null
+  desens_mapping: Record<string, string>
   desensitized_text: string | null
   analysis_result: AnalysisItem[] | null
   error_message: string | null

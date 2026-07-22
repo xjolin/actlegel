@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { parsePdfWithMinerU } from '@/lib/services/mineru'
-import { desensitizeChunk } from '@/lib/services/ollama'
+import { desensitizeChunk, type DesensMapping } from '@/lib/services/ollama'
 import { analyzeContract } from '@/lib/services/analysis'
 import { splitIntoChunks } from '@/lib/chunks'
 
@@ -92,6 +92,7 @@ async function runPipeline(task: any) {
         desens_total: splitIntoChunks(rawText).length,
         desens_cursor: 0,
         desens_chunks: [],
+        desens_mapping: {},
         status: 'desensitizing',
       }).eq('id', taskId)
 
@@ -104,22 +105,26 @@ async function runPipeline(task: any) {
         .update({ status: 'desensitizing' }).eq('id', taskId)
 
       const { data: latest } = await supabase
-        .from('review_tasks').select('raw_text, desens_cursor, desens_chunks, desens_total')
+        .from('review_tasks').select('raw_text, desens_cursor, desens_chunks, desens_total, desens_mapping')
         .eq('id', taskId).single()
 
       if (!latest?.raw_text) throw new Error('raw_text 为空，无法脱敏')
 
       const chunks = splitIntoChunks(latest.raw_text, 500)
       const completedChunks: string[] = (latest.desens_chunks as string[]) ?? []
+      // 全局映射跨块传递；断点续传时从库中恢复，保证同一实体编号连续一致
+      let mapping = (latest.desens_mapping as DesensMapping) ?? {}
 
       for (let i = latest.desens_cursor; i < chunks.length; i++) {
         console.log('[Pipeline] 脱敏块:', i + 1, '/', chunks.length)
-        const result = await desensitizeChunk(chunks[i])
-        completedChunks.push(result)
+        const result = await desensitizeChunk(chunks[i], mapping)
+        mapping = result.mapping
+        completedChunks.push(result.masked)
 
         await supabase.from('review_tasks').update({
           desens_chunks: completedChunks,
           desens_cursor: i + 1,
+          desens_mapping: mapping,
         }).eq('id', taskId)
       }
 
