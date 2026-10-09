@@ -1,5 +1,7 @@
 # ActLegal 部署手册 (AI 自动操作版)
 
+> 在一台全新的 Mac 上本机部署 HaS 脱敏版，请改用 [DEPLOY_MAC.md](./DEPLOY_MAC.md)。本文档中的 `OLLAMA_DESENS_MODEL=qwen3:8b` 为旧版脱敏配置。
+
 本文档已针对 AI 自动操作进行了优化。AI 读取此文档后，可自行完成环境架构的部署与配置，并在需要密码或密钥时主动向用户获取。
 
 **核心变更：**

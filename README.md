@@ -3,6 +3,8 @@
 基于大语言模型的智能合同审查平台。上传 PDF 合同文件，自动完成解析、脱敏、风险分析，并提供交互式问答。
 
 > **新机器部署**：请参阅 [DEPLOY.md](./DEPLOY.md) 完整部署手册，包含 Supabase 本地部署、MinerU、Ollama、数据库初始化的逐步指引。
+>
+> **新 Mac 本机部署（HaS 脱敏版）**：请参阅 [DEPLOY_MAC.md](./DEPLOY_MAC.md)，含首次部署、日常启停与常见问题。
 
 ## 技术栈
 
@@ -12,7 +14,7 @@
 | 后端 API | Next.js API Routes |
 | 数据库 | Supabase (PostgreSQL)、Supabase Storage、Supabase Realtime |
 | PDF 解析 | MinerU (本地部署) |
-| 文本脱敏 | Ollama + Qwen3 本地大模型 |
+| 文本脱敏 | Ollama + HaS 本地实体识别模型 + 正则兜底 |
 | 合同分析 | 智谱 AI (GLM-4-Flash) |
 
 ## 目录结构
