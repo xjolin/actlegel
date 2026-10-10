@@ -65,6 +65,7 @@ export default function TaskDetail() {
   const isProcessing = ['pending', 'parsing', 'desensitizing', 'analyzing'].includes(task.status)
   const isFailed = ['parsing_failed', 'desens_failed', 'analyze_failed', 'failed'].includes(task.status)
   const isDone = task.status === 'done'
+  const roleLabel = task.party_role === 'party_b' ? '乙方' : '甲方'
 
   return (
     <Layout showHeader={false}>
@@ -78,6 +79,9 @@ export default function TaskDetail() {
               </svg>
             </Link>
             <h1 className="text-base font-semibold text-gray-900 truncate">{task.filename}</h1>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+              {roleLabel}
+            </span>
             <StatusBadge status={task.status} />
           </div>
 
@@ -101,7 +105,7 @@ export default function TaskDetail() {
               <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm text-gray-700">
                 {task.status === 'pending' && '等待处理...'}
-                {task.status === 'parsing' && '正在解析 PDF 文档...'}
+                {task.status === 'parsing' && '正在解析文档...'}
                 {task.status === 'desensitizing' && '正在脱敏处理...'}
                 {task.status === 'analyzing' && '正在 AI 分析合同风险...'}
               </p>
@@ -140,7 +144,7 @@ export default function TaskDetail() {
                 <iframe
                   src={'/api/tasks/' + id + '/preview'}
                   className="w-full h-full border-0"
-                  title="PDF 预览"
+                  title="文档预览"
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-gray-400 text-sm">
@@ -169,15 +173,15 @@ export default function TaskDetail() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* 问答抽屉 */}
-      <ChatDrawer
-        taskId={id as string}
-        open={chatOpen}
-        onClose={() => setChatOpen(false)}
-        enabled={isDone}
-      />
+        {/* 问答抽屉 */}
+        <ChatDrawer
+          taskId={id as string}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          enabled={isDone}
+        />
+      </div>
     </Layout>
   )
 }

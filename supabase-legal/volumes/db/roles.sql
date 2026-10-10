@@ -1,6 +1,9 @@
 -- NOTE: change to your own passwords for production environments
 \set pgpass `echo "$POSTGRES_PASSWORD"`
 
+-- Ignore errors if roles don't exist yet
+\set ON_ERROR_STOP off
+
 ALTER USER authenticator WITH PASSWORD :'pgpass';
 ALTER USER pgbouncer WITH PASSWORD :'pgpass';
 ALTER USER supabase_auth_admin WITH PASSWORD :'pgpass';

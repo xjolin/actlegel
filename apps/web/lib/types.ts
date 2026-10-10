@@ -7,6 +7,7 @@ export type TaskStatus =
 export interface TaskSummary {
   id: string
   filename: string
+  party_role: 'party_a' | 'party_b'
   status: TaskStatus
   desens_cursor: number
   desens_total: number
@@ -38,4 +39,17 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   created_at?: string
+}
+
+export interface WeeklyUsageCount {
+  weekStart: string
+  weekEnd: string
+  label: string
+  count: number
+}
+
+export interface UsageHistoryData {
+  totalAnalysisCount: number
+  uniqueErrorFileCount: number
+  weeklyUsageCounts: WeeklyUsageCount[]
 }

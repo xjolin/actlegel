@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 export default function UploadButton({ onSuccess }: { onSuccess: (taskId: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [partyRole, setPartyRole] = useState<'party_a' | 'party_b' | ''>('')
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
@@ -10,8 +11,8 @@ export default function UploadButton({ onSuccess }: { onSuccess: (taskId: string
   const selectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
-    if (!f.name.endsWith('.pdf')) {
-      setError('请选择 PDF 文件')
+    if (!/\.(pdf|docx|pptx|xlsx|jpe?g|png|gif|bmp|webp|tiff?)$/i.test(f.name) && !f.type.startsWith('image/')) {
+      setError('请选择 PDF、图片、DOCX、PPTX 或 XLSX 文件')
       return
     }
     setError('')
@@ -21,11 +22,16 @@ export default function UploadButton({ onSuccess }: { onSuccess: (taskId: string
 
   const upload = () => {
     if (!file) return
+    if (!partyRole) {
+      setError('请选择甲方或乙方')
+      return
+    }
     setUploading(true)
     setProgress(0)
 
     const formData = new FormData()
     formData.append('pdf', file)
+    formData.append('partyRole', partyRole)
 
     const xhr = new XMLHttpRequest()
     xhr.upload.onprogress = (e) => {
@@ -106,11 +112,38 @@ export default function UploadButton({ onSuccess }: { onSuccess: (taskId: string
 
   // 默认按钮
   return (
-    <div>
+    <div className="flex flex-wrap items-center gap-3">
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-gray-600">身份</span>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              name="partyRole"
+              value="party_a"
+              checked={partyRole === 'party_a'}
+              onChange={() => setPartyRole('party_a')}
+              className="text-primary"
+            />
+            甲方
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="radio"
+              name="partyRole"
+              value="party_b"
+              checked={partyRole === 'party_b'}
+              onChange={() => setPartyRole('party_b')}
+              className="text-primary"
+            />
+            乙方
+          </label>
+        </div>
+      </div>
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf"
+        accept=".pdf,.docx,.pptx,.xlsx,image/*"
         className="hidden"
         onChange={selectFile}
       />
@@ -121,9 +154,9 @@ export default function UploadButton({ onSuccess }: { onSuccess: (taskId: string
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
         </svg>
-        上传合同 PDF
+        上传合同文档
       </button>
-      {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+      {error && <p className="w-full text-sm text-red-600">{error}</p>}
     </div>
   )
 }

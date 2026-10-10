@@ -21,6 +21,7 @@ export default function TaskCard({
   onDeleted: (id: string) => void
 }) {
   const [deleting, setDeleting] = useState(false)
+  const roleLabel = task.party_role === 'party_b' ? '乙方' : '甲方'
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -43,6 +44,9 @@ export default function TaskCard({
           {task.filename}
         </p>
         <div className="flex items-center gap-2">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+            {roleLabel}
+          </span>
           <StatusBadge status={task.status} />
           <button
             onClick={handleDelete}

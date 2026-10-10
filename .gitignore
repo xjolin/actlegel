@@ -35,3 +35,6 @@ next-env.d.ts
 /supabase-legal/volumes/storage/
 /supabase-legal/.env
 !/supabase-legal/.env.example
+
+# local desensitized output (contains client contract text)
+TEMP/
