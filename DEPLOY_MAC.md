@@ -4,7 +4,7 @@
 
 | 服务 | 作用 | 本机地址 |
 |---|---|---|
-| Supabase（Docker） | 数据库 + 文件存储 + 实时推送 | API `http://127.0.0.1:54321`，管理台 `http://127.0.0.1:54323` |
+| Supabase（仓库内 `supabase-legal/` 的 Docker Compose） | 数据库 + 文件存储 + 实时推送 | API 与管理台均为 `http://localhost:8000` |
 | MinerU | PDF 解析 | `http://127.0.0.1:8888` |
 | Ollama + HaS 模型 | 脱敏（实体识别） | `http://127.0.0.1:11434` |
 | 智谱 GLM（云端） | 合同风险分析 | 需要 API Key |
@@ -39,8 +39,8 @@
 # Homebrew（已装可跳过）
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Node.js 22 LTS（Next.js 16 要求 Node ≥ 20.9）、Git、Supabase CLI、uv（Python 管理）
-brew install node@22 git supabase/tap/supabase uv
+# Node.js 22 LTS（Next.js 16 要求 Node ≥ 20.9）、Git、uv（Python 管理）
+brew install node@22 git uv
 brew link --force --overwrite node@22
 
 # Docker Desktop 与 Ollama（图形应用）
@@ -53,7 +53,7 @@ brew install --cask docker ollama
 
 ```bash
 node -v          # v22.x
-supabase -v
+docker compose version
 docker info >/dev/null && echo "docker ok"
 ollama -v
 uv --version
@@ -74,49 +74,58 @@ git checkout feature/has-desensitization
 
 ### 3. 启动 Supabase 并初始化数据库
 
-Supabase 实例放在**项目目录之外**，避免误提交：
-
-```bash
-mkdir -p ~/work/actlegal-supabase && cd ~/work/actlegal-supabase
-supabase init          # 询问是否生成 VS Code / IntelliJ 配置时，直接回车选 N
-supabase start         # 首次会拉取 Docker 镜像，需要几分钟
-```
-
-> 新 Mac 上没有其他 Supabase 实例，使用默认端口即可（54321～54324）。若端口被占用，修改 `supabase/config.toml` 中对应的 `port` 后重新 `supabase start`。
-
-**记下密钥**（第 6 步要用）：
-
-```bash
-supabase status -o env
-```
-
-关注其中的 `API_URL`、`ANON_KEY`、`SERVICE_ROLE_KEY` 三项。
-
-**建表 + 加脱敏映射列 + 建存储桶**（无需安装 psql，直接进数据库容器执行）：
+仓库自带一套独立的 Supabase（`supabase-legal/docker-compose.yml`，容器名均以 `supabase-legal-` 开头），用 npm 脚本管理，不需要安装 Supabase CLI。确认 Docker Desktop 已在运行，然后：
 
 ```bash
 cd ~/work/actlegal
-DB=$(docker ps --format '{{.Names}}' | grep '^supabase_db_' | head -1); echo "$DB"
 
-docker exec -i "$DB" psql -U postgres -d postgres < packages/db/supabase/migrations/001_init.sql
-docker exec -i "$DB" psql -U postgres -d postgres < packages/db/supabase/migrations/002_add_desens_mapping.sql
+# 1) 生成配置文件：supabase-legal/.env 和 apps/web/.env.local（已存在则不覆盖）
+npm run supabase:setup
 
-docker exec -i "$DB" psql -U postgres -d postgres -c "
+# 2) 启动 Supabase（首次会拉取镜像，需要几分钟）
+npm run supabase:up
+docker ps --format '{{.Names}}\t{{.Status}}' | grep supabase-legal   # 等到大部分显示 (healthy)
+
+# 3) 把 Supabase 地址和密钥同步进 apps/web/.env.local
+npm run supabase:sync-env
+```
+
+> `supabase-legal/.env` 里默认是官方示例密钥，**仅限本机使用**。若要对局域网 / 公网开放，必须先按 Supabase 官方自托管文档重新生成 `JWT_SECRET`、`ANON_KEY`、`SERVICE_ROLE_KEY` 并修改 `POSTGRES_PASSWORD`、`DASHBOARD_PASSWORD`，然后重新执行第 3) 步同步。
+
+**建表 + 加脱敏映射列 + 建存储桶**：
+
+```bash
+cd ~/work/actlegal
+
+# 建表（001）
+npm run db:migrate:local
+
+# 脱敏映射列（002，HaS 版本必需）
+docker exec -i supabase-legal-db psql -U postgres -d postgres < packages/db/supabase/migrations/002_add_desens_mapping.sql
+
+# 存储桶 contracts + 访问策略
+docker exec -i supabase-legal-db psql -U postgres -d postgres -c "
   insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
   values ('contracts', 'contracts', false, 52428800, array['application/pdf'])
   on conflict (id) do nothing;"
+docker exec -i supabase-legal-db psql -U postgres -d postgres < supabase-legal/volumes/db/contracts_policies.sql
 ```
 
 验证：
 
 ```bash
-docker exec -i "$DB" psql -U postgres -d postgres -c "\dt public.*"
+docker exec -i supabase-legal-db psql -U postgres -d postgres -c "\dt public.*"
 # 应看到 review_tasks、analysis_items、chat_messages
 
-docker exec -i "$DB" psql -U postgres -d postgres -c \
+docker exec -i supabase-legal-db psql -U postgres -d postgres -c \
   "select column_name from information_schema.columns where table_name='review_tasks' and column_name='desens_mapping';"
 # 应返回一行 desens_mapping
+
+docker exec -i supabase-legal-db psql -U postgres -d postgres -c "select id from storage.buckets;"
+# 应返回 contracts
 ```
+
+管理台：浏览器打开 <http://localhost:8000>，账号密码为 `supabase-legal/.env` 中的 `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`。
 
 > ⚠️ `002_add_desens_mapping.sql` 必须执行，否则脱敏阶段写入 `desens_mapping` 会报错。
 
@@ -175,37 +184,38 @@ curl -s -F "files=@/path/to/任意合同.pdf" http://127.0.0.1:8888/file_parse |
 
 ### 6. 配置环境变量
 
+第 3 步已生成 `apps/web/.env.local`，并写好了 Supabase 地址、密钥和 `WORKER_SECRET`。这里只需补上分析模型的配置：
+
 ```bash
 cd ~/work/actlegal
-cp apps/web/.env.local.example apps/web/.env.local
 open -e apps/web/.env.local
 ```
 
-填写为：
+确认 / 填写为：
 
 ```env
-# Supabase（第 3 步 supabase status -o env 的输出）
-NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<ANON_KEY>
-SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY>
+# Supabase（由 npm run supabase:sync-env 自动写入，一般不用改）
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<自动写入>
+SUPABASE_SERVICE_ROLE_KEY=<自动写入>
+WORKER_SECRET=<自动写入，默认 dev-secret>
 
 # PDF 解析
-MINERU_API_URL=http://127.0.0.1:8888
+MINERU_API_URL=http://localhost:8888
 
 # 脱敏：Ollama + HaS
-OLLAMA_API_URL=http://127.0.0.1:11434
+OLLAMA_API_URL=http://localhost:11434
 OLLAMA_DESENS_MODEL=hf.co/xuanwulab/HaS_Text_0209_0.6B_Q4:latest
 
-# 合同分析：智谱 GLM
+# 合同分析：智谱 GLM（需要手动填写）
 ANALYSIS_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions
 ANALYSIS_MODEL=glm-4-flash
 ANALYSIS_API_KEY=<你的智谱 API Key>
-
-# 手动触发重试任务时使用的密钥（自定义一个随机字符串）
-WORKER_SECRET=<随机字符串>
 ```
 
-> `.env.local` 已在 `.gitignore` 中，不会被提交。不要把真实密钥写进 `.env.local.example`。
+> ⚠️ `npm run supabase:sync-env` 会以 `.env.local.example` 为模板**重写**整个 `.env.local`，再次执行后需要重新填写 `ANALYSIS_*` 三项。
+>
+> `.env.local` 和 `supabase-legal/.env` 都已在 `.gitignore` 中，不会被提交。不要把真实密钥写进任何 `*.example` 文件。
 
 ### 7. 安装依赖并启动应用
 
@@ -221,7 +231,7 @@ npm run dev               # 开发模式，改代码自动刷新
 npm run build && npm start
 ```
 
-浏览器打开 <http://localhost:3000>。
+浏览器打开 <http://localhost:3000>（应用监听 `0.0.0.0:3000`，同一局域网的其他设备也可用 `http://<本机IP>:3000` 访问）。
 
 ### 8. 端到端验证
 
@@ -240,7 +250,7 @@ npm run build && npm start
 # 1) 打开 Docker Desktop、Ollama 应用（可在系统设置 → 通用 → 登录项 里设为开机自启）
 
 # 2) Supabase
-cd ~/work/actlegal-supabase && supabase start
+cd ~/work/actlegal && npm run supabase:up
 
 # 3) MinerU（单独一个终端，保持运行）
 cd ~/work/mineru && source .venv/bin/activate && MINERU_MODEL_SOURCE=modelscope mineru-api --host 127.0.0.1 --port 8888
@@ -252,7 +262,7 @@ cd ~/work/actlegal && npm run dev
 **一键自检**：
 
 ```bash
-curl -s -o /dev/null -w "supabase %{http_code}\n" http://127.0.0.1:54321/rest/v1/
+curl -s -o /dev/null -w "supabase %{http_code}\n" http://localhost:8000/rest/v1/
 curl -s -o /dev/null -w "ollama   %{http_code}\n" http://127.0.0.1:11434/api/tags
 curl -s -o /dev/null -w "mineru   %{http_code}\n" http://127.0.0.1:8888/docs
 curl -s -o /dev/null -w "web      %{http_code}\n" http://localhost:3000
@@ -270,7 +280,8 @@ curl -X POST http://localhost:3000/api/worker/dispatch -H "x-worker-secret: <WOR
 
 ```bash
 # 应用 / MinerU：在各自终端按 Ctrl+C
-cd ~/work/actlegal-supabase && supabase stop     # 数据会保留
+cd ~/work/actlegal && npm run supabase:down      # 数据会保留
+# npm run supabase:reset 会删除容器和数据卷，慎用
 ```
 
 **更新代码**：
@@ -279,7 +290,7 @@ cd ~/work/actlegal-supabase && supabase stop     # 数据会保留
 cd ~/work/actlegal
 git pull
 npm install
-# 若有新的 packages/db/supabase/migrations/*.sql，按第 3 步的方式执行一遍
+# 若有新的 packages/db/supabase/migrations/*.sql，用 docker exec -i supabase-legal-db psql ... < 文件 执行一遍
 ```
 
 ---
@@ -288,8 +299,9 @@ npm install
 
 | 现象 | 排查 |
 |---|---|
-| `supabase start` 报 Docker 未运行 | 先打开 Docker Desktop，等左下角显示 Engine running |
-| 上传报 `Bucket not found` | 第 3 步的 `contracts` 存储桶没建，重新执行那条 SQL |
+| `npm run supabase:up` 报 Docker 未运行 | 先打开 Docker Desktop，等左下角显示 Engine running |
+| 某个 `supabase-legal-*` 容器反复重启 | `docker logs supabase-legal-<服务名>` 查看原因；端口 8000 / 5432 被占用时，修改 `supabase-legal/.env` 中的 `KONG_HTTP_PORT` / `POSTGRES_PORT`，同时改 `SUPABASE_PUBLIC_URL`、`API_EXTERNAL_URL`，再执行 `npm run supabase:sync-env` |
+| 上传报 `Bucket not found` | 第 3 步的 `contracts` 存储桶没建，重新执行那两条命令 |
 | 脱敏阶段报 `column "desens_mapping" does not exist` | 没执行 `002_add_desens_mapping.sql` |
 | 脱敏阶段报 `HaS error: 404` | 模型名与 `ollama list` 不一致，或模型未拉取 |
 | 日志出现 `NER 输出非 JSON`，且多次重试后提示 `仅正则脱敏` | HaS 模型输出异常，此时该块只脱敏邮箱、身份证、电话等固定格式信息；检查 Ollama 版本与模型是否完整 |
